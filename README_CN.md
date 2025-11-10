@@ -735,6 +735,17 @@ class CustomTool:
   </a>
 </div>
 
+## 🔄 自动同步上游更新
+
+为了避免手动同步主仓库，我们新增了 GitHub Actions 工作流 `.github/workflows/upstream-sync.yml`，默认会把 `HKUDS/AI-Trader` 的 `main` 分支快进到当前 fork：
+
+1. **触发方式**：每天 UTC 03:20 自动运行，或在 Actions 页面手动使用 `workflow_dispatch` 按钮立即触发。
+2. **凭证配置**：默认使用 `GITHUB_TOKEN` 推送到 fork；如需访问私有上游，可在仓库 `Settings → Secrets → Actions` 中新增 `SYNC_TOKEN`，填入具有 `repo` 权限的 PAT。
+3. **自定义参数**：手动触发时可以指定 `upstream`（格式 `owner/repo`）、`branches`（逗号分隔）及 `force_push`（必要时允许 `--force-with-lease`）。
+4. **冲突处理**：工作流优先尝试快进合并，若存在分歧会创建常规合并提交；冲突会导致任务失败，需人工处理。
+
+如需同步额外分支，只需在调度输入中追加分支名称或修改 `DEFAULT_BRANCHES` 环境变量即可。
+
 ## 免责声明
 
 AI-Trader项目所提供的资料仅供研究之用，并不构成任何投资建议。投资者在作出任何投资决策之前，应寻求独立专业意见。任何过往表现未必可作为未来业绩的指标。阁下应注意，投资价值可能上升亦可能下跌，且并无任何保证。AI-Trader项目的所有内容仅作研究之用，并不构成对所提及之证券／行业的任何投资推荐。投资涉及风险。如有需要，请寻求专业咨询。

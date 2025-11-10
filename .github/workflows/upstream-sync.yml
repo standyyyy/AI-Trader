@@ -1,0 +1,104 @@
+name: Upstream Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: '上游仓库（格式：拥有者/仓库名，留空则使用默认值）'
+        required: false
+      branches:
+        description: '需要同步的分支，使用逗号分隔（留空则为默认分支列表）'
+        required: false
+      force_push:
+        description: '当出现非快进合并时是否允许强制推送（true/false）'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '20 3 * * *' # 每天 11:20（UTC+8 约 19:20）
+
+env:
+  DEFAULT_UPSTREAM: HKUDS/AI-Trader
+  DEFAULT_BRANCHES: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出当前仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN != '' && secrets.SYNC_TOKEN || github.token }}
+
+      - name: 配置 Git 身份
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 同步上游最新提交
+        env:
+          REQUESTED_UPSTREAM: ${{ github.event.inputs.upstream }}
+          REQUESTED_BRANCHES: ${{ github.event.inputs.branches }}
+          FORCE_PUSH: ${{ github.event.inputs.force_push }}
+        run: |
+          set -euo pipefail
+
+          upstream="${REQUESTED_UPSTREAM:-}"
+          if [ -z "$upstream" ]; then
+            upstream="${DEFAULT_UPSTREAM}"
+          fi
+
+          if git remote | grep -q "^upstream$"; then
+            git remote remove upstream
+          fi
+          git remote add upstream "https://github.com/${upstream}.git"
+
+          branches="${REQUESTED_BRANCHES:-}"
+          if [ -z "$branches" ]; then
+            branches="${DEFAULT_BRANCHES}"
+          fi
+
+          echo "即将同步上游 ${upstream} 的分支: ${branches}"
+
+          # 将逗号分隔的分支列表展开为数组
+          IFS=',' read -ra branch_list <<< "$branches"
+
+          for raw_branch in "${branch_list[@]}"; do
+            branch="$(echo "$raw_branch" | xargs)"
+            if [ -z "$branch" ]; then
+              continue
+            fi
+
+            echo "::group::同步分支 ${branch}"
+
+            if ! git ls-remote --exit-code upstream "refs/heads/${branch}" >/dev/null 2>&1; then
+              echo "上游缺少分支 ${branch}，跳过"
+              echo "::endgroup::"
+              continue
+            fi
+
+            git fetch upstream "${branch}"
+
+            if git show-ref --quiet --verify "refs/heads/${branch}"; then
+              git checkout "${branch}"
+            else
+              git checkout -b "${branch}"
+            fi
+
+            # 先尝试快进，如果失败则再执行常规合并
+            if git merge --ff-only "upstream/${branch}"; then
+              echo "快进合并成功"
+            else
+              git merge --no-edit "upstream/${branch}"
+            fi
+
+            if [ "${FORCE_PUSH:-false}" = "true" ]; then
+              git push origin "${branch}" --force-with-lease
+            else
+              git push origin "${branch}"
+            fi
+
+            echo "::endgroup::"
+          done
